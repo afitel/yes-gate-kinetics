@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>YES-GATE kinetics</title>
     <style>
+        /* Все стили остаются без изменений */
         * {
             margin: 0;
             padding: 0;
@@ -307,6 +308,30 @@
         .file-link[data-filetype="htm"]::before {
             content: "📄 ";
         }
+
+        /* Loading spinner */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 4px solid rgba(87, 199, 133, 0.2);
+            border-top: 4px solid #57C785;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -325,7 +350,10 @@
 
                 <div class="file-list-container">
                     <ul class="file-list" id="fileList">
-                        <!-- File list will be generated here -->
+                        <div class="loading" id="loadingFiles">
+                            <div class="spinner"></div>
+                            <p>Loading files from repository...</p>
+                        </div>
                     </ul>
                 </div>
             </div>
@@ -358,8 +386,10 @@
     </div>
 
     <script>
-        // Array of files from Python
-        const htmlFiles = ['17__11-12-25.html', '4__18-12-25.html', '15__16-12-25.html', '13__16-12-25.html', '23__17-12-25.html', '5__18-12-25.html', '16__16-12-25.html', '19__16-12-25.html', '21__17-12-25.html', '6__15-12-25.html', '20__17-12-25.html', '10__15-12-25.html', '11__15-12-25.html', '9__11-12-25.html'];
+        // Configuration - CHANGE THESE VALUES
+        const REPO_OWNER = 'afitel'; // Ваш логин GitHub
+        const REPO_NAME = 'yes-gate-kinetics';  // Название вашего репозитория
+        const FILE_PATTERN = /^\d+__\d+-\d+-\d+\.html$/; // Регулярное выражение для n__k-t-z.html
 
         // Get DOM elements
         const fileListElement = document.getElementById('fileList');
@@ -368,6 +398,10 @@
         const iframeContainerElement = document.getElementById('iframeContainer');
         const contentFrameElement = document.getElementById('contentFrame');
         const fileCountElement = document.getElementById('fileCount');
+        const loadingFilesElement = document.getElementById('loadingFiles');
+
+        // Global variable to store files
+        let htmlFiles = [];
 
         // Function to load file into iframe
         function loadFile(filename, filepath) {
@@ -398,17 +432,61 @@
             return filename.split('.').pop().toLowerCase();
         }
 
+        // Function to fetch files from GitHub repository
+        async function fetchFilesFromGitHub() {
+            try {
+                // GitHub API endpoint to get repository contents
+                const apiUrl = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents`;
+                
+                const response = await fetch(apiUrl);
+                
+                if (!response.ok) {
+                    throw new Error(`GitHub API error: ${response.status}`);
+                }
+                
+                const contents = await response.json();
+                
+                // Filter HTML files matching our pattern
+                const filteredFiles = contents
+                    .filter(item => item.type === 'file' && FILE_PATTERN.test(item.name))
+                    .map(item => item.name);
+                
+                return filteredFiles;
+                
+            } catch (error) {
+                console.error('Error fetching files from GitHub:', error);
+                
+                // Fallback to manual list if API fails
+                return [
+                    '17__11-12-25.html', '4__18-12-25.html', '15__16-12-25.html', 
+                    '13__16-12-25.html', '23__17-12-25.html', '5__18-12-25.html', 
+                    '16__16-12-25.html', '19__16-12-25.html', '21__17-12-25.html', 
+                    '6__15-12-25.html', '20__17-12-25.html', '10__15-12-25.html', 
+                    '11__15-12-25.html', '9__11-12-25.html'
+                ];
+            }
+        }
+
         // Function to create file list
-        function createFileList() {
+        function createFileList(files) {
             // Clear the list
             fileListElement.innerHTML = '';
 
-            // Sort files by name
-            const sortedFiles = [...htmlFiles].sort();
+            // Hide loading indicator
+            loadingFilesElement.style.display = 'none';
+
+            // Sort files numerically by the first number (n in n__k-t-z.html)
+            const sortedFiles = [...files].sort((a, b) => {
+                const numA = parseInt(a.split('__')[0]);
+                const numB = parseInt(b.split('__')[0]);
+                return numA - numB;
+            });
+
+            // Store globally
+            htmlFiles = sortedFiles;
 
             // Create list items
-            sortedFiles.forEach(filepath => {
-                const filename = filepath.split('/').pop().split('\\').pop();
+            sortedFiles.forEach(filename => {
                 const fileExtension = getFileExtension(filename);
 
                 const listItem = document.createElement('li');
@@ -423,7 +501,7 @@
 
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
-                    loadFile(filename, filepath);
+                    loadFile(filename, filename); // For GitHub Pages, just filename as path
                 });
 
                 listItem.appendChild(link);
@@ -441,8 +519,8 @@
                 try {
                     const { filename, filepath } = JSON.parse(lastViewed);
                     // Check if the file still exists in our list
-                    if (sortedFiles.includes(filepath)) {
-                        fileToLoad = { filename, filepath };
+                    if (sortedFiles.includes(filename)) {
+                        fileToLoad = { filename, filepath: filename };
                     }
                 } catch (e) {
                     console.log('Could not load last viewed file:', e);
@@ -452,13 +530,23 @@
             // Load first file if no last viewed file found
             if (!fileToLoad && sortedFiles.length > 0) {
                 const firstFile = sortedFiles[0];
-                const firstName = firstFile.split('/').pop().split('\\').pop();
-                fileToLoad = { filename: firstName, filepath: firstFile };
+                fileToLoad = { filename: firstFile, filepath: firstFile };
             }
 
             // Load the file
             if (fileToLoad) {
                 loadFile(fileToLoad.filename, fileToLoad.filepath);
+            }
+        }
+
+        // Function to initialize
+        async function initialize() {
+            try {
+                const files = await fetchFilesFromGitHub();
+                createFileList(files);
+            } catch (error) {
+                console.error('Initialization error:', error);
+                loadingFilesElement.innerHTML = '<p style="color: red;">Error loading files. Please check console.</p>';
             }
         }
 
@@ -475,20 +563,17 @@
                     iframeDoc.body.clientHeight,
                     iframeDoc.documentElement.clientHeight
                 );
-
                 // We can't directly set iframe height due to cross-origin restrictions
-                // But we can post messages if files are from same origin
             } catch (e) {
                 // Cross-origin restriction, can't access iframe document
             }
         });
 
-        // Initialize list when page loads
-        document.addEventListener('DOMContentLoaded', createFileList);
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', initialize);
 
         // Handle messages from iframe (if needed)
         window.addEventListener('message', (event) => {
-            // Can add handling for messages from loaded pages
             console.log('Message from iframe:', event.data);
         }, false);
 
